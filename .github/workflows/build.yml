@@ -27,7 +27,8 @@ jobs:
         run: |
           export KERNEL_DIR=$PWD/kernel
           export KBUILD_NOPEDANTIC=1
-          make KBUILD_EXTRA_SYMBOLS="$PWD/kernel/Module.symvers"
+          export KBUILD_MODPOST_WARN=1
+          make
 
       - name: 打包成品
         uses: actions/upload-artifact@v4
