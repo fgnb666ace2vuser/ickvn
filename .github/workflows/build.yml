@@ -13,15 +13,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装全部依赖，包含bootimg‑tools用于解包init_boot
+      - name: 安装基础依赖，只保留编译必须项
         run: |
           sudo apt update
-          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget bootimg-tools
+          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget
 
-      - name: 解包init_boot.img，提取kernel镜像
+      - name: Python脚本解包init_boot.img，提取kernel（无外部二进制依赖）
         run: |
-          unpackbootimg -i init_boot.img -o out/
-          lz4 -d out/kernel vmlinux
+          cat > unpack_boot.py << 'PYEOF'
+          import sys, os
+
+          def extract_kernel(img_path, out_kernel):
+              with open(img_path, "rb") as f:
+                  data = f.read()
+          # GKI init‑boot 头部固定大小 4096字节
+          kernel_data = data[4096:]
+          with open(out_kernel, "wb") as f:
+              f.write(kernel_data)
+
+          if __name__ == "__main__":
+              extract_kernel("init_boot.img", "kernel.img")
+          PYEOF
+          python3 unpack_boot.py
+          lz4 -d kernel.img vmlinux
           ls -lh vmlinux
 
       - name: 提取内核版本并写入全局环境变量
