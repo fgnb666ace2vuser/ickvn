@@ -20,6 +20,11 @@ jobs:
         run: |
           git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
           cd kernel
+          
+          # 修改内核版本字符串，匹配你手机的版本
+          echo 'CONFIG_LOCALVERSION="-android16-g6a984f0c8721"' >> .config
+          echo 'CONFIG_LOCALVERSION_AUTO=n' >> .config
+          
           make defconfig ARCH=arm64
           make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
 
