@@ -1,9 +1,9 @@
 obj-m += hw_drv.o
-KDIR := $(KERNEL_DIR)
+KDIR ?= $(PWD)/kernel
 PWD := $(shell pwd)
 
 all:
-	make -C $(KDIR) M=$(PWD) modules ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+	MAKEFLAGS="$(MAKEFLAGS)" make -C $(KDIR) M=$(PWD) modules ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KBUILD_EXTRA_SYMBOLS="$(KDIR)/Module.symvers"
 
 clean:
 	make -C $(KDIR) M=$(PWD) clean
