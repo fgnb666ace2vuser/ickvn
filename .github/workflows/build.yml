@@ -16,18 +16,18 @@ jobs:
       - name: 安装依赖工具
         run: |
           sudo apt update
-          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 perl python3 binutils wget
+          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget git
 
-      - name: 直接下载v30.7版magiskboot‑linux，避开latest重定向
+      - name: 下载 unmkbootimg‑ng，用来解包init_boot（不依赖Magisk）
         run: |
-          wget https://github.com/topjohnwu/Magisk/releases/download/v30.7/magiskboot-linux
-          chmod +x magiskboot-linux
-          mv magiskboot-linux magiskboot
+          wget https://github.com/osm0sis/Android‑Image‑Tools/releases/download/v2024.02.20/unmkbootimg‑ng-linux
+          chmod +x unmkbootimg‑ng-linux
+          mv unmkbootimg‑ng-linux unmkbootimg‑ng
 
-      - name: 解包 init_boot.img，提取内核
+      - name: 解包 init_boot.img，提取并解压内核
         run: |
-          ./magiskboot unpack init_boot.img kernel.raw
-          ./magiskboot decompress kernel.raw vmlinux
+          ./unmkbootimg‑ng init_boot.img kernel.img
+          lz4 -d kernel.img vmlinux
           ls -lh vmlinux
 
       - name: 提取内核版本并写入全局环境变量
