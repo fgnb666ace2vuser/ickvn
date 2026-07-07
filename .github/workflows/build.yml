@@ -13,7 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ⚠️ 确保仓库根目录已放入 init_boot.img，否则请额外增加下载步骤
+      - name: 校验init_boot.img是否存在
+        run: |
+          set -euo pipefail
+          if [[ ! -f "init_boot.img" ]]; then
+              echo "ERROR: init_boot.img 未放在仓库根目录"
+              exit 1
+          fi
+
       - name: 安装基础依赖（包含xxd用于读取boot头部）
         run: |
           set -euo pipefail
@@ -23,7 +30,6 @@ jobs:
       - name: 从 init_boot.img 提取内核并解压
         run: |
           set -euo pipefail
-          # 正确读取 kernel_size（偏移8）和 page_size（偏移36）
           read KERNEL_SIZE PAGE_SIZE <<< $(python3 -c "
 import struct
 with open('init_boot.img', 'rb') as f:
@@ -35,12 +41,15 @@ with open('init_boot.img', 'rb') as f:
 ")
           echo "kernel_size = ${KERNEL_SIZE}"
           echo "page_size   = ${PAGE_SIZE}"
+          if [[ "${KERNEL_SIZE}" -eq 0 ]]; then
+              echo "ERROR: 读取kernel_size为0，init_boot.img损坏"
+              exit 1
+          fi
           dd if=init_boot.img of=kernel.img bs=1 skip=${PAGE_SIZE} count=${KERNEL_SIZE}
-          # 尝试 lz4 解压，失败则可能为未压缩内核
           if lz4 -d kernel.img vmlinux 2>/dev/null; then
               echo "lz4 解压成功"
           else
-              echo "非 lz4 压缩，当作未压缩内核复制"
+              echo "非 lz4 压缩，直接复制内核"
               cp kernel.img vmlinux
           fi
           test -f vmlinux
@@ -61,7 +70,7 @@ with open('init_boot.img', 'rb') as f:
           echo "完整内核版本: ${FULL_VER}"
           echo "LOCALVERSION: ${LOCAL_VER}"
 
-      - name: 生成Python脚本提取Module.symvers
+      - name: 生成Python脚本提取Module.symvers（修复export_type作用域，补全kver）
         run: |
           set -euo pipefail
           cat > extract_symvers.py << 'PYEOF'
@@ -111,7 +120,6 @@ with open('init_boot.img', 'rb') as f:
                       count_crc = kc['size'] // 4
                       if count_sym != count_crc:
                           continue
-                      export_type = "EXPORT_SYMBOL_GPL" if "_gpl" in ks_name else "EXPORT_SYMBOL"
                       for i in range(count_sym):
                           off_name, off_ns = struct.unpack('<ii', ks_data[i*8:i*8+8])
                           crc_val = struct.unpack('<I', kc_data[i*4:i*4+4])[0]
@@ -125,7 +133,10 @@ with open('init_boot.img', 'rb') as f:
                               else:
                                   sym_name = str_data[str_offset:null_pos].decode("utf-8", errors="replace")
                               if sym_name:
-                                  # 格式：CRC <tab> 符号名 <tab> 所属模块 <tab> 导出类型
+                                  if "_gpl" in ks_name:
+                                      export_type = "EXPORT_SYMBOL_GPL"
+                                  else:
+                                      export_type = "EXPORT_SYMBOL"
                                   f_out.write(f"0x{crc_val:08x}\t{sym_name}\tvmlinux\t{export_type}\n")
 
           if __name__ == "__main__":
