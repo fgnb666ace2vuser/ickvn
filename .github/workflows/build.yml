@@ -1,10 +1,44 @@
-- name: 拉取安卓16 6.12 GKI 官方内核源码
-  run: |
-    git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
-    cd kernel
-    make defconfig ARCH=arm64
-    echo 'CONFIG_LOCALVERSION="-android16-5-g844001fb8721-ab14552068-4k"' >> .config
-    echo '# CONFIG_LOCALVERSION_AUTO is not set' >> .config
-    echo 'CONFIG_MODVERSIONS=y' >> .config
-    echo 'CONFIG_MODULE_SRCVERSION_ALL=y' >> .config
-    make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+name: Build Kernel Module
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装编译依赖
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev
+
+      - name: 拉取安卓16 6.12 GKI 官方内核源码
+        run: |
+          git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
+          cd kernel
+          
+          make defconfig ARCH=arm64
+          
+          echo 'CONFIG_LOCALVERSION="-android16-5-g844001fb8721-ab14552068-4k"' >> .config
+          echo '# CONFIG_LOCALVERSION_AUTO is not set' >> .config
+          echo 'CONFIG_MODVERSIONS=y' >> .config
+          echo 'CONFIG_MODULE_SRCVERSION_ALL=y' >> .config
+          
+          make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: 编译伪装模块
+        run: |
+          export KERNEL_DIR=$PWD/kernel
+          export KBUILD_NOPEDANTIC=1
+          export KBUILD_MODPOST_WARN=1
+          make
+
+      - name: 打包成品
+        uses: actions/upload-artifact@v4
+        with:
+          name: hw_drv_ko
+          path: hw_drv.ko
