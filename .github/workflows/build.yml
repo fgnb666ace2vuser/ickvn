@@ -13,21 +13,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装基础依赖
+      # 重要：确保仓库根目录已放入 init_boot.img 文件，否则需要额外增加下载步骤
+      - name: 安装基础依赖（包含xxd用于读取boot头部）
         run: |
           set -euo pipefail
           sudo apt update
-          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget
+          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget vim-common
 
-      - name: 预先拉取内核源码，使用内核自带脚本解析init_boot（修复解压54错误）
+      - name: Bash读取init‑boot头部，获取真实kernel偏移，提取内核
         run: |
           set -euo pipefail
-          git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
-          # 利用Google内核自带的unpack_bootimg.py，精准解析init‑boot，不再硬切4096字节
-          python3 kernel/scripts/unpack_bootimg.py --boot_img init_boot.img --out .
-          lz4 -d kernel vmlinux
+          # 正确计算 4 字节小端偏移（修复原版错误）
+          OFFSET=$(( 16#$(xxd -l 4 -s 8 -p init_boot.img | tac -rs .. | tr -d '\n') ))
+          dd if=init_boot.img of=kernel.img skip=${OFFSET} bs=1
+          lz4 -d kernel.img vmlinux
           test -f vmlinux
-          echo "vmlinux提取成功"
+          echo "vmlinux提取成功，偏移值：${OFFSET}"
           ls -lh vmlinux
 
       - name: 提取内核版本，写入全局环境变量
@@ -84,15 +85,6 @@ jobs:
                           ksym_pairs.append((sec_name, crc_sec))
               if not ksym_pairs:
                   sys.exit(3)
-              kver = "6.12.35"
-              try:
-                  ret = subprocess.run(["strings", vmlinux_path], capture_output=True, text=True)
-                  for line in ret.stdout.splitlines():
-                      if "Linux version" in line:
-                          kver = line.split()[2]
-                          break
-              except Exception:
-                  pass
               with open(out_path, "w", encoding="utf-8") as f_out:
                   for ks_name, kc_name in ksym_pairs:
                       ks = secs[ks_name]
@@ -103,6 +95,8 @@ jobs:
                       count_crc = kc['size'] // 4
                       if count_sym != count_crc:
                           continue
+                      # 判断是否为 GPL 符号（简单根据段名包含 _gpl）
+                      export_type = "EXPORT_SYMBOL_GPL" if "_gpl" in ks_name else "EXPORT_SYMBOL"
                       for i in range(count_sym):
                           off_name, off_ns = struct.unpack('<ii', ks_data[i*8:i*8+8])
                           crc_val = struct.unpack('<I', kc_data[i*4:i*4+4])[0]
@@ -116,7 +110,8 @@ jobs:
                               else:
                                   sym_name = str_data[str_offset:null_pos].decode("utf-8", errors="replace")
                               if sym_name:
-                                  f_out.write(f"0x{crc_val:08x}\t{sym_name}\t{kver}\t\n")
+                                  # 修正格式：CRC 符号名 所属模块(vmlinux) 导出类型
+                                  f_out.write(f"0x{crc_val:08x}\t{sym_name}\tvmlinux\t{export_type}\n")
 
           if __name__ == "__main__":
               main()
@@ -125,9 +120,10 @@ jobs:
           test -f Module.symvers
           echo "符号条目数量：$(wc -l < Module.symvers)"
 
-      - name: 编译环境准备
+      - name: 拉取内核源码，编译环境准备
         run: |
           set -euo pipefail
+          git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
           cd kernel
           make defconfig ARCH=arm64
           echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VER }}\"" >> .config
@@ -140,6 +136,8 @@ jobs:
       - name: 编译内核模块
         run: |
           set -euo pipefail
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
           export KERNEL_DIR="$PWD/kernel"
           export KBUILD_NOPEDANTIC=1
           make -C $KERNEL_DIR M=$PWD modules
@@ -147,7 +145,9 @@ jobs:
       - name: 校验编译生成的ko文件
         run: |
           set -euo pipefail
+          file hw_drv.ko
           modinfo hw_drv.ko
+
       - uses: actions/upload-artifact@v4
         with:
           name: hw_drv_ko
