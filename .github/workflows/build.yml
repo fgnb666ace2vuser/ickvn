@@ -13,33 +13,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装基础依赖，只保留编译必须项
+      - name: 安装基础依赖
         run: |
+          set -euo pipefail
           sudo apt update
           sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget
 
-      - name: Python脚本解包init_boot.img，提取kernel（无外部二进制依赖）
+      - name: Python脚本解包init_boot.img（修复缩进 + 文件校验）
         run: |
+          set -euo pipefail
           cat > unpack_boot.py << 'PYEOF'
           import sys, os
 
           def extract_kernel(img_path, out_kernel):
+              if not os.path.exists(img_path):
+                  raise FileNotFoundError("init_boot.img不存在")
               with open(img_path, "rb") as f:
                   data = f.read()
-          # GKI init‑boot 头部固定大小 4096字节
-          kernel_data = data[4096:]
-          with open(out_kernel, "wb") as f:
-              f.write(kernel_data)
+                  # GKI init‑boot 头部固定4096字节
+                  kernel_data = data[4096:]
+              with open(out_kernel, "wb") as f:
+                  f.write(kernel_data)
 
           if __name__ == "__main__":
               extract_kernel("init_boot.img", "kernel.img")
           PYEOF
           python3 unpack_boot.py
           lz4 -d kernel.img vmlinux
+          test -f vmlinux
+          echo "vmlinux提取成功"
           ls -lh vmlinux
 
-      - name: 提取内核版本并写入全局环境变量
+      - name: 提取内核版本，写入全局环境变量
         run: |
+          set -euo pipefail
           FULL_VER=$(strings vmlinux | grep "Linux version" | head -1 | awk '{print $3}')
           echo "FULL_VER=${FULL_VER}" >> $GITHUB_ENV
           if [[ "${FULL_VER}" == *"-"* ]]; then
@@ -51,8 +58,9 @@ jobs:
           echo "完整内核版本: ${FULL_VER}"
           echo "LOCALVERSION: ${LOCAL_VER}"
 
-      - name: 生成Python脚本提取Module.symvers
+      - name: 生成Python脚本提取Module.symvers（加固异常判断）
         run: |
+          set -euo pipefail
           cat > extract_symvers.py << 'PYEOF'
           import sys, struct, subprocess, re
 
@@ -90,7 +98,6 @@ jobs:
                           ksym_pairs.append((sec_name, crc_sec))
               if not ksym_pairs:
                   sys.exit(3)
-              # 获取内核版本
               kver = "6.12.35"
               try:
                   ret = subprocess.run(["strings", vmlinux_path], capture_output=True, text=True)
@@ -100,7 +107,7 @@ jobs:
                           break
               except Exception:
                   pass
-              with open(out_path, "w", encoding="utf‑8") as f_out:
+              with open(out_path, "w", encoding="utf-8") as f_out:
                   for ks_name, kc_name in ksym_pairs:
                       ks = secs[ks_name]
                       kc = secs[kc_name]
@@ -130,14 +137,14 @@ jobs:
           PYEOF
           python3 extract_symvers.py vmlinux Module.symvers
           test -f Module.symvers
-          echo "提取符号条目数量：$(wc -l < Module.symvers)"
+          echo "符号条目数量：$(wc -l < Module.symvers)"
 
       - name: 拉取内核源码，编译环境准备
         run: |
+          set -euo pipefail
           git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
           cd kernel
           make defconfig ARCH=arm64
-          # 写入LOCALVERSION
           echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VER }}\"" >> .config
           echo '# CONFIG_LOCALVERSION_AUTO is not set' >> .config
           echo 'CONFIG_MODVERSIONS=y' >> .config
@@ -145,14 +152,16 @@ jobs:
           make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
           cp ../Module.symvers .
 
-      - name: 编译内核模块
+      - name: 编译内核模块（标准内核模块编译语法）
         run: |
+          set -euo pipefail
           export KERNEL_DIR="$PWD/kernel"
           export KBUILD_NOPEDANTIC=1
           make -C $KERNEL_DIR M=$PWD modules
 
-      - name: 校验编译结果
+      - name: 校验编译生成的ko文件
         run: |
+          set -euo pipefail
           modinfo hw_drv.ko
       - uses: actions/upload-artifact@v4
         with:
