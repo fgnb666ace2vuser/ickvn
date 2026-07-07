@@ -71,9 +71,9 @@ with open('init_boot.img', 'rb') as f:
           echo "LOCALVERSION: ${LOCAL_VER}"
 
       - name: 生成Python脚本提取Module.symvers
-        run: |
+        run: |-
           set -euo pipefail
-          cat > extract_symvers.py << 'PYEOF'
+          cat <<-'PYEOF' > extract_symvers.py
 import sys, struct, subprocess, re
 
 def get_sections(path):
@@ -141,7 +141,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-          PYEOF
+PYEOF
           python3 extract_symvers.py vmlinux Module.symvers
           test -f Module.symvers
           echo "符号条目数量：$(wc -l < Module.symvers)"
