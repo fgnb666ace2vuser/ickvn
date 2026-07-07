@@ -21,11 +21,13 @@ jobs:
           git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
           cd kernel
           
-          # 修改内核版本字符串，匹配你手机的版本
-          echo 'CONFIG_LOCALVERSION="-android16-g6a984f0c8721"' >> .config
-          echo 'CONFIG_LOCALVERSION_AUTO=n' >> .config
-          
+          # 先生成默认配置
           make defconfig ARCH=arm64
+          
+          # 再追加版本配置（顺序不能反！）
+          echo 'CONFIG_LOCALVERSION="-android16-5-g844001fb8721-ab14552068-4k"' >> .config
+          echo '# CONFIG_LOCALVERSION_AUTO is not set' >> .config
+          
           make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
 
       - name: 编译伪装模块
