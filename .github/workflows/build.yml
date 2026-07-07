@@ -1,154 +1,27 @@
-name: Build Kernel Module
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    env:
-      FULL_VER: ""
-      LOCAL_VER: ""
-    steps:
-      - uses: actions/checkout@v4
-
-      # 重要：确保仓库根目录已放入 init_boot.img 文件，否则需要额外增加下载步骤
-      - name: 安装基础依赖（包含xxd用于读取boot头部）
-        run: |
-          set -euo pipefail
-          sudo apt update
-          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget vim-common
-
-      - name: Bash读取init‑boot头部，获取真实kernel偏移，提取内核
-        run: |
-          set -euo pipefail
-          # 正确计算 4 字节小端偏移（修复原版错误）
-          OFFSET=$(( 16#$(xxd -l 4 -s 8 -p init_boot.img | tac -rs .. | tr -d '\n') ))
-          dd if=init_boot.img of=kernel.img skip=${OFFSET} bs=1
-          lz4 -d kernel.img vmlinux
-          test -f vmlinux
-          echo "vmlinux提取成功，偏移值：${OFFSET}"
-          ls -lh vmlinux
-
-      - name: 提取内核版本，写入全局环境变量
-        run: |
-          set -euo pipefail
-          FULL_VER=$(strings vmlinux | grep "Linux version" | head -1 | awk '{print $3}')
-          echo "FULL_VER=${FULL_VER}" >> $GITHUB_ENV
-          if [[ "${FULL_VER}" == *"-"* ]]; then
-            LOCAL_VER="-${FULL_VER#*-}"
-          else
-            LOCAL_VER=""
-          fi
-          echo "LOCAL_VER=${LOCAL_VER}" >> $GITHUB_ENV
-          echo "完整内核版本: ${FULL_VER}"
-          echo "LOCALVERSION: ${LOCAL_VER}"
-
-      - name: 生成Python脚本提取Module.symvers
-        run: |
-          set -euo pipefail
-          cat > extract_symvers.py << 'PYEOF'
-          import sys, struct, subprocess, re
-
-          def get_sections(path):
-              out = subprocess.run(['readelf', '-S', path], capture_output=True, text=True).stdout
-              secs = {}
-              pat = re.compile(r'\[\s*\d+\]\s+(\S+)\s+\S+\s+([0-9a-f]+)\s+([0-9a-f]+)\s+([0-9a-f]+)')
-              for line in out.split('\n'):
-                  m = pat.search(line)
-                  if m:
-                      secs[m.group(1)] = {
-                          'addr': int(m.group(2), 16),
-                          'offset': int(m.group(3), 16),
-                          'size': int(m.group(4), 16)
-                      }
-              return secs
-
-          def main():
-              if len(sys.argv) != 3:
-                  sys.exit(1)
-              vmlinux_path = sys.argv[1]
-              out_path = sys.argv[2]
-              secs = get_sections(vmlinux_path)
-              if "__ksymtab_strings" not in secs:
-                  sys.exit(2)
-              str_sec = secs['__ksymtab_strings']
-              with open(vmlinux_path, "rb") as f:
-                  data = f.read()
-              str_data = data[str_sec['offset']:str_sec['offset'] + str_sec['size']]
-              ksym_pairs = []
-              for sec_name in secs:
-                  if sec_name.startswith("__ksymtab") and sec_name != "__ksymtab_strings":
-                      crc_sec = sec_name.replace("__ksymtab", "__kcrctab")
-                      if crc_sec in secs:
-                          ksym_pairs.append((sec_name, crc_sec))
-              if not ksym_pairs:
-                  sys.exit(3)
-              with open(out_path, "w", encoding="utf-8") as f_out:
-                  for ks_name, kc_name in ksym_pairs:
-                      ks = secs[ks_name]
-                      kc = secs[kc_name]
-                      ks_data = data[ks['offset']: ks['offset'] + ks['size']]
-                      kc_data = data[kc['offset']: kc['offset'] + kc['size']]
-                      count_sym = ks['size'] // 8
-                      count_crc = kc['size'] // 4
-                      if count_sym != count_crc:
-                          continue
-                      # 判断是否为 GPL 符号（简单根据段名包含 _gpl）
-                      export_type = "EXPORT_SYMBOL_GPL" if "_gpl" in ks_name else "EXPORT_SYMBOL"
-                      for i in range(count_sym):
-                          off_name, off_ns = struct.unpack('<ii', ks_data[i*8:i*8+8])
-                          crc_val = struct.unpack('<I', kc_data[i*4:i*4+4])[0]
-                          sym_vaddr = ks['addr'] + (i * 8)
-                          name_vaddr = sym_vaddr + off_name
-                          str_offset = name_vaddr - str_sec['addr']
-                          if 0 <= str_offset < len(str_data):
-                              null_pos = str_data.find(b'\x00', str_offset)
-                              if null_pos == -1:
-                                  sym_name = str_data[str_offset:].decode("utf-8", errors="replace")
-                              else:
-                                  sym_name = str_data[str_offset:null_pos].decode("utf-8", errors="replace")
-                              if sym_name:
-                                  # 修正格式：CRC 符号名 所属模块(vmlinux) 导出类型
-                                  f_out.write(f"0x{crc_val:08x}\t{sym_name}\tvmlinux\t{export_type}\n")
-
-          if __name__ == "__main__":
-              main()
-          PYEOF
-          python3 extract_symvers.py vmlinux Module.symvers
-          test -f Module.symvers
-          echo "符号条目数量：$(wc -l < Module.symvers)"
-
-      - name: 拉取内核源码，编译环境准备
-        run: |
-          set -euo pipefail
-          git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
-          cd kernel
-          make defconfig ARCH=arm64
-          echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VER }}\"" >> .config
-          echo '# CONFIG_LOCALVERSION_AUTO is not set' >> .config
-          echo 'CONFIG_MODVERSIONS=y' >> .config
-          echo 'CONFIG_MODULE_SRCVERSION_ALL=y' >> .config
-          make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
-          cp ../Module.symvers .
-
-      - name: 编译内核模块
-        run: |
-          set -euo pipefail
-          export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export KERNEL_DIR="$PWD/kernel"
-          export KBUILD_NOPEDANTIC=1
-          make -C $KERNEL_DIR M=$PWD modules
-
-      - name: 校验编译生成的ko文件
-        run: |
-          set -euo pipefail
-          file hw_drv.ko
-          modinfo hw_drv.ko
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hw_drv_ko
-          path: hw_drv.ko
+- name: 从 init_boot.img 提取内核并解压
+  run: |
+    set -euo pipefail
+    # 用 python 安全读取两个关键字段（避免 shell 小端转换的坑）
+    read KERNEL_SIZE PAGE_SIZE <<< $(python3 -c "
+import struct
+with open('init_boot.img', 'rb') as f:
+    f.seek(8)
+    kernel_size = struct.unpack('<I', f.read(4))[0]
+    f.seek(36)
+    page_size = struct.unpack('<I', f.read(4))[0]
+    print(kernel_size, page_size)
+")
+    echo "kernel_size = ${KERNEL_SIZE}"
+    echo "page_size   = ${PAGE_SIZE}"
+    # 提取内核数据
+    dd if=init_boot.img of=kernel.img bs=1 skip=${PAGE_SIZE} count=${KERNEL_SIZE}
+    # 尝试 lz4 解压（常见于较新 GKI 内核），失败则可能是未压缩或其他格式，直接重命名
+    if lz4 -d kernel.img vmlinux 2>/dev/null; then
+        echo "lz4 解压成功"
+    else
+        echo "不是 lz4 压缩，可能为未压缩内核或其他格式，直接复制"
+        cp kernel.img vmlinux
+    fi
+    test -f vmlinux
+    file vmlinux
+    ls -lh vmlinux
