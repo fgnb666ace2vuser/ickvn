@@ -19,27 +19,13 @@ jobs:
           sudo apt update
           sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 xz-utils perl python3 binutils wget
 
-      - name: Python脚本解包init_boot.img（修复缩进 + 文件校验）
+      - name: 预先拉取内核源码，使用内核自带脚本解析init_boot（修复解压54错误）
         run: |
           set -euo pipefail
-          cat > unpack_boot.py << 'PYEOF'
-          import sys, os
-
-          def extract_kernel(img_path, out_kernel):
-              if not os.path.exists(img_path):
-                  raise FileNotFoundError("init_boot.img不存在")
-              with open(img_path, "rb") as f:
-                  data = f.read()
-                  # GKI init‑boot 头部固定4096字节
-                  kernel_data = data[4096:]
-              with open(out_kernel, "wb") as f:
-                  f.write(kernel_data)
-
-          if __name__ == "__main__":
-              extract_kernel("init_boot.img", "kernel.img")
-          PYEOF
-          python3 unpack_boot.py
-          lz4 -d kernel.img vmlinux
+          git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
+          # 利用Google内核自带的unpack_bootimg.py，精准解析init‑boot，不再硬切4096字节
+          python3 kernel/scripts/unpack_bootimg.py --boot_img init_boot.img --out .
+          lz4 -d kernel vmlinux
           test -f vmlinux
           echo "vmlinux提取成功"
           ls -lh vmlinux
@@ -58,7 +44,7 @@ jobs:
           echo "完整内核版本: ${FULL_VER}"
           echo "LOCALVERSION: ${LOCAL_VER}"
 
-      - name: 生成Python脚本提取Module.symvers（加固异常判断）
+      - name: 生成Python脚本提取Module.symvers
         run: |
           set -euo pipefail
           cat > extract_symvers.py << 'PYEOF'
@@ -139,10 +125,9 @@ jobs:
           test -f Module.symvers
           echo "符号条目数量：$(wc -l < Module.symvers)"
 
-      - name: 拉取内核源码，编译环境准备
+      - name: 编译环境准备
         run: |
           set -euo pipefail
-          git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
           cd kernel
           make defconfig ARCH=arm64
           echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VER }}\"" >> .config
@@ -152,7 +137,7 @@ jobs:
           make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
           cp ../Module.symvers .
 
-      - name: 编译内核模块（标准内核模块编译语法）
+      - name: 编译内核模块
         run: |
           set -euo pipefail
           export KERNEL_DIR="$PWD/kernel"
