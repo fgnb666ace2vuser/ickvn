@@ -26,6 +26,7 @@ jobs:
       - name: 编译伪装模块
         run: |
           export KERNEL_DIR=$PWD/kernel
+          export KBUILD_NOPEDANTIC=1
           make KBUILD_EXTRA_SYMBOLS="$PWD/kernel/Module.symvers"
 
       - name: 打包成品
