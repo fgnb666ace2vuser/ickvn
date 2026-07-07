@@ -18,9 +18,9 @@ jobs:
           sudo apt update
           sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 perl python3 binutils wget
 
-      - name: 下载独立版 magiskboot‑linux（修复404）
+      - name: 下载独立版 magiskboot‑linux（增加‑L跟随302重定向）
         run: |
-          wget https://github.com/topjohnwu/Magisk/releases/latest/download/magiskboot-linux
+          wget -L https://github.com/topjohnwu/Magisk/releases/latest/download/magiskboot-linux
           chmod +x magiskboot-linux
           mv magiskboot-linux magiskboot
 
