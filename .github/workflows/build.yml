@@ -1,5 +1,4 @@
 name: Build Kernel Module
-
 on:
   push:
     branches: [ main ]
@@ -8,27 +7,43 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FULL_VER: ""
+      LOCAL_VER: ""
     steps:
       - uses: actions/checkout@v4
 
       - name: 安装依赖工具
         run: |
           sudo apt update
-          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 perl python3 binutils wget unzip
+          sudo apt install -y build-essential gcc-aarch64-linux-gnu git bc bison flex libssl-dev libelf-dev lz4 perl python3 binutils wget
 
-      - name: 下载 Magisk 工具
+      - name: 下载独立版 magiskboot‑linux（修复404）
         run: |
-          wget -O magisk.zip https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.zip
-          unzip -j magisk.zip magiskboot
-          chmod +x magiskboot
+          wget https://github.com/topjohnwu/Magisk/releases/latest/download/magiskboot-linux
+          chmod +x magiskboot-linux
+          mv magiskboot-linux magiskboot
 
-      - name: 解包 init_boot 提取内核
+      - name: 解包 init_boot.img，提取内核
         run: |
-          ./magiskboot unpack init_boot.img
-          ./magiskboot decompress kernel vmlinux
-          echo "内核提取完成，大小：$(ls -lh vmlinux | awk '{print $5}')"
+          ./magiskboot unpack init_boot.img kernel.raw
+          ./magiskboot decompress kernel.raw vmlinux
+          ls -lh vmlinux
 
-      - name: 提取本机内核符号表 (Module.symvers)
+      - name: 提取内核版本并写入全局环境变量
+        run: |
+          FULL_VER=$(strings vmlinux | grep "Linux version" | head -1 | awk '{print $3}')
+          echo "FULL_VER=${FULL_VER}" >> $GITHUB_ENV
+          if [[ "${FULL_VER}" == *"-"* ]]; then
+            LOCAL_VER="-${FULL_VER#*-}"
+          else
+            LOCAL_VER=""
+          fi
+          echo "LOCAL_VER=${LOCAL_VER}" >> $GITHUB_ENV
+          echo "完整内核版本: ${FULL_VER}"
+          echo "LOCALVERSION: ${LOCAL_VER}"
+
+      - name: 生成Python脚本提取Module.symvers
         run: |
           cat > extract_symvers.py << 'PYEOF'
           import sys, struct, subprocess, re
@@ -47,95 +62,90 @@ jobs:
                       }
               return secs
 
-          vmlinux = sys.argv[1]
-          output = sys.argv[2]
-          secs = get_sections(vmlinux)
+          def main():
+              if len(sys.argv) != 3:
+                  sys.exit(1)
+              vmlinux_path = sys.argv[1]
+              out_path = sys.argv[2]
+              secs = get_sections(vmlinux_path)
+              if "__ksymtab_strings" not in secs:
+                  sys.exit(2)
+              str_sec = secs['__ksymtab_strings']
+              with open(vmlinux_path, "rb") as f:
+                  data = f.read()
+              str_data = data[str_sec['offset']:str_sec['offset'] + str_sec['size']]
+              ksym_pairs = []
+              for sec_name in secs:
+                  if sec_name.startswith("__ksymtab") and sec_name != "__ksymtab_strings":
+                      crc_sec = sec_name.replace("__ksymtab", "__kcrctab")
+                      if crc_sec in secs:
+                          ksym_pairs.append((sec_name, crc_sec))
+              if not ksym_pairs:
+                  sys.exit(3)
+              # 获取内核版本
+              kver = "6.12.35"
+              try:
+                  ret = subprocess.run(["strings", vmlinux_path], capture_output=True, text=True)
+                  for line in ret.stdout.splitlines():
+                      if "Linux version" in line:
+                          kver = line.split()[2]
+                          break
+              except Exception:
+                  pass
+              with open(out_path, "w", encoding="utf‑8") as f_out:
+                  for ks_name, kc_name in ksym_pairs:
+                      ks = secs[ks_name]
+                      kc = secs[kc_name]
+                      ks_data = data[ks['offset']: ks['offset'] + ks['size']]
+                      kc_data = data[kc['offset']: kc['offset'] + kc['size']]
+                      count_sym = ks['size'] // 8
+                      count_crc = kc['size'] // 4
+                      if count_sym != count_crc:
+                          continue
+                      for i in range(count_sym):
+                          off_name, off_ns = struct.unpack('<ii', ks_data[i*8:i*8+8])
+                          crc_val = struct.unpack('<I', kc_data[i*4:i*4+4])[0]
+                          sym_vaddr = ks['addr'] + (i * 8)
+                          name_vaddr = sym_vaddr + off_name
+                          str_offset = name_vaddr - str_sec['addr']
+                          if 0 <= str_offset < len(str_data):
+                              null_pos = str_data.find(b'\x00', str_offset)
+                              if null_pos == -1:
+                                  sym_name = str_data[str_offset:].decode("utf-8", errors="replace")
+                              else:
+                                  sym_name = str_data[str_offset:null_pos].decode("utf-8", errors="replace")
+                              if sym_name:
+                                  f_out.write(f"0x{crc_val:08x}\t{sym_name}\t{kver}\t\n")
 
-          with open(vmlinux, 'rb') as f:
-              data = f.read()
-
-          str_sec = secs['__ksymtab_strings']
-          str_data = data[str_sec['offset']:str_sec['offset']+str_sec['size']]
-
-          ksyms = []
-          for name in secs:
-              if name.startswith('__ksymtab') and name != '__ksymtab_strings':
-                  crc_name = name.replace('__ksymtab', '__kcrctab')
-                  if crc_name in secs:
-                      ksyms.append((name, crc_name))
-
-          # 提取内核版本
-          kver = "6.12.35"
-          try:
-              s = subprocess.run(['strings', vmlinux], capture_output=True, text=True).stdout
-              for line in s.split('\n'):
-                  if 'Linux version' in line:
-                      kver = line.split()[2]
-                      break
-          except:
-              pass
-
-          with open(output, 'w') as out:
-              for ks_name, kc_name in ksyms:
-                  ks = secs[ks_name]
-                  kc = secs[kc_name]
-                  ks_data = data[ks['offset']:ks['offset']+ks['size']]
-                  kc_data = data[kc['offset']:kc['offset']+kc['size']]
-                  num = ks['size'] // 8
-                  if kc['size'] // 4 != num:
-                      continue
-                  for i in range(num):
-                      noff, nsoff = struct.unpack('<ii', ks_data[i*8:i*8+8])
-                      crc = struct.unpack('<I', kc_data[i*4:i*4+4])[0]
-                      sym_addr = ks['addr'] + i*8
-                      name_addr = sym_addr + noff
-                      name_off = name_addr - str_sec['addr']
-                      if 0 <= name_off < len(str_data):
-                          end = str_data.find(b'\x00', name_off)
-                          name = str_data[name_off:end].decode('utf-8', 'replace') if end > 0 else ''
-                          if name:
-                              out.write(f"0x{crc:08x}\t{name}\t{kver}\t\n")
+          if __name__ == "__main__":
+              main()
           PYEOF
-
           python3 extract_symvers.py vmlinux Module.symvers
-          echo "符号表提取完成，共 $(wc -l < Module.symvers) 个符号"
-          
-          # 保存内核版本信息
-          FULL_VER=$(strings vmlinux | grep "Linux version" | head -1 | awk '{print $3}')
-          echo "FULL_VER=$FULL_VER" >> $GITHUB_ENV
-          echo "内核完整版本: $FULL_VER"
+          test -f Module.symvers
+          echo "提取符号条目数量：$(wc -l < Module.symvers)"
 
-      - name: 拉取内核源码并准备编译环境
+      - name: 拉取内核源码，编译环境准备
         run: |
           git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common/ kernel
           cd kernel
-          
           make defconfig ARCH=arm64
-          
-          # 设置和你手机一致的版本号
-          LOCAL_VER="-${FULL_VER#*-}"
-          echo "CONFIG_LOCALVERSION=\"$LOCAL_VER\"" >> .config
+          # 写入LOCALVERSION
+          echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VER }}\"" >> .config
           echo '# CONFIG_LOCALVERSION_AUTO is not set' >> .config
           echo 'CONFIG_MODVERSIONS=y' >> .config
           echo 'CONFIG_MODULE_SRCVERSION_ALL=y' >> .config
-          
           make modules_prepare ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
-          
-          # 用我们提取的符号表覆盖
           cp ../Module.symvers .
-          echo "符号表已替换"
 
-      - name: 编译适配版内核模块
+      - name: 编译内核模块
         run: |
-          export KERNEL_DIR=$PWD/kernel
+          export KERNEL_DIR="$PWD/kernel"
           export KBUILD_NOPEDANTIC=1
-          make
+          make -C $KERNEL_DIR M=$PWD modules
 
-      - name: 验证并打包成品
+      - name: 校验编译结果
         run: |
-          echo "模块信息:"
-          modinfo hw_drv.ko | head -10
-          
+          modinfo hw_drv.ko
       - uses: actions/upload-artifact@v4
         with:
           name: hw_drv_ko
