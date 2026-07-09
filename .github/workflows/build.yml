@@ -13,15 +13,18 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      - name: Install GCC‑11 cross‑compiler
+      - name: Cache GCC‑11
+        uses: actions/cache@v3
+        with:
+          path: gcc-arm64
+          key: gcc11‑arm64‑kernelorg
+
+      - name: Download GCC‑11 from kernel.org
         run: |
-          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
-          sudo apt update
-          sudo apt install -y aarch64-linux-gnu-gcc-11 aarch64-linux-gnu-g++-11
-          # 建立软链接，适配内核CROSS_COMPILE格式
-          mkdir -p gcc/bin
-          ln -s /usr/bin/aarch64-linux-gnu-gcc-11 gcc/bin/aarch64-linux-android-gcc
-          ln -s /usr/bin/aarch64-linux-gnu-g++-11 gcc/bin/aarch64-linux-android-g++
+          if [ ! -d "gcc-arm64" ]; then
+            wget https://cdn.kernel.org/pub/tools/crosstool/files/bin/x86_64/aarch64-linux-gnu/gcc-11.4.0/x86_64-aarch64-linux-gnu-gcc-11.4.0.tar.xz
+            tar -xf x86_64-aarch64-linux-gnu-gcc-11.4.0.tar.xz -C gcc-arm64 --strip-components=1
+          fi
 
       - name: Clone kernel source repositories
         run: |
@@ -42,7 +45,7 @@ jobs:
       - name: Compile kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: ${{github.workspace}}/gcc/bin/aarch64-linux-android-
+          CROSS_COMPILE: ${{github.workspace}}/gcc-arm64/bin/aarch64-linux-gnu-
         run: |
           cd kernel
           make olddefconfig
