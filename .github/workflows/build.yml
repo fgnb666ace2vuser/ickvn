@@ -10,6 +10,13 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
+      # 自动安装GCC‑4.9‑AArch64，由插件处理下载配置
+      - name: Install GCC 4.9
+        uses: actions‑setup‑gcc@v5
+        with:
+          gcc-version: '4.9'
+          target: aarch64-linux-android
+
       - name: Clone kernel source repositories
         run: |
           git clone https://github.com/fgnb666ace2vuser/android_kernel_common_oneplus_sm8845 kernel
@@ -26,16 +33,10 @@ jobs:
           cp .config kernel/
           cp -r CPU kernel/
 
-      # 使用稳定的预编译GCC‑4.9从GitHub镜像，改用curl下载压缩包
-      - name: Download GCC‑4.9 from GitHub mirror
-        run: |
-          curl -L "https://github.com/zhuwendong/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9/releases/download/v4.9/gcc49.zip" -o gcc49.zip
-          unzip -q gcc49.zip
-
       - name: Compile kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: ${{github.workspace}}/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9/bin/aarch64-linux-android-
+          CROSS_COMPILE: aarch64-linux-android-
         run: |
           cd kernel
           make -j$(nproc)
