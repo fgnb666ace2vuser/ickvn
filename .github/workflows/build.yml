@@ -1,4 +1,7 @@
 name: Build OnePlus SM8845 Kernel
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [ main ]
@@ -37,6 +40,7 @@ jobs:
           CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
         run: |
           cd kernel
+          make olddefconfig
           make -j$(nproc)
           make modules
           cp arch/arm64/boot/Image ../Kernel-Image
