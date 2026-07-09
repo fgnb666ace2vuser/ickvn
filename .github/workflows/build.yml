@@ -48,8 +48,7 @@ jobs:
           CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
         run: |
           cd kernel
-          # 彻底屏蔽GCC版本校验
-          sed -i '/^minimum GCC version/,/^endif/d' scripts/Kconfig.include
+          sed -i '45s/^/#/' scripts/Kconfig.include
           make olddefconfig
           make -j$(nproc)
           make modules
