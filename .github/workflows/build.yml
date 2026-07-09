@@ -13,18 +13,14 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      - name: Cache GCC‑7.5
-        uses: actions/cache@v3
-        with:
-          path: gcc-arm64
-          key: gcc75‑aarch64‑android
-
-      - name: Download GCC‑7.5 prebuilt
+      # 安装GCC‑7.5交叉编译器
+      - name: Install GCC‑7.5 cross‑compiler
         run: |
-          if [ ! -d "gcc-arm64" ]; then
-            wget https://github.com/arter97/arm64-gcc/releases/download/7.5/aarch64-linux-android-7.5-linux-x86_64.tar.xz
-            tar -xf aarch64-linux-android-7.5-linux-x86_64.tar.xz -C gcc-arm64 --strip-components=1
-          fi
+          sudo apt update
+          sudo apt install -y gcc-7-aarch64-linux-gnu g++-7-aarch64-linux-gnu
+          mkdir -p gcc-arm64/bin
+          ln -s /usr/bin/aarch64-linux-gnu-gcc-7 ${{github.workspace}}/gcc-arm64/bin/aarch64-linux-android-gcc
+          ln -s /usr/bin/aarch64-linux-gnu-g++-7 ${{github.workspace}}/gcc-arm64/bin/aarch64-linux-android-g++
 
       - name: Clone kernel source repositories
         run: |
