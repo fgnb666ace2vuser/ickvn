@@ -13,18 +13,15 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      - name: Cache NDK‑r16b
-        uses: actions/cache@v3
-        with:
-          path: android-ndk-r16b
-          key: ndk-r16b
-
-      - name: Download Android NDK‑r16b (GCC‑4.9)
+      - name: Install GCC‑11 cross‑compiler
         run: |
-          if [ ! -d "android-ndk-r16b" ]; then
-            wget https://dl.google.com/android/repository/android-ndk-r16b-linux-x86_64.zip
-            unzip -q android-ndk-r16b-linux-x86_64.zip
-          fi
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          sudo apt update
+          sudo apt install -y aarch64-linux-gnu-gcc-11 aarch64-linux-gnu-g++-11
+          # 建立软链接，适配内核CROSS_COMPILE格式
+          mkdir -p gcc/bin
+          ln -s /usr/bin/aarch64-linux-gnu-gcc-11 gcc/bin/aarch64-linux-android-gcc
+          ln -s /usr/bin/aarch64-linux-gnu-g++-11 gcc/bin/aarch64-linux-android-g++
 
       - name: Clone kernel source repositories
         run: |
@@ -45,10 +42,9 @@ jobs:
       - name: Compile kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
+          CROSS_COMPILE: ${{github.workspace}}/gcc/bin/aarch64-linux-android-
         run: |
           cd kernel
-          sed -i '/minimum GCC version/,/^ *fi/s/^/#/' scripts/Kconfig.include
           make olddefconfig
           make -j$(nproc)
           make modules
