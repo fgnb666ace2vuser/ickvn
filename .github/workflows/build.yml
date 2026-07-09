@@ -13,18 +13,11 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      - name: Cache AOSP GCC‑Clang
-        uses: actions/cache@v3
+      # 安装LLVM/Clang‑14，自带兼容的GCC版本，版本大于5.1
+      - name: Install LLVM‑14
+        uses: actions/setup-llvm@v1
         with:
-          path: gcc-toolchain
-          key: aosp‑gcc‑toolchain
-
-      - name: Download AOSP prebuilt GCC‑8
-        run: |
-          if [ ! -d "gcc-toolchain" ]; then
-            wget https://dl.google.com/android/build‑tools/gcc/linux‑x86/aarch64‑linux‑android‑8.1.0.tar.xz
-            tar -xf aarch64-linux-android-8.1.0.tar.xz -C gcc-toolchain --strip-components=1
-          fi
+          llvm-version: 14
 
       - name: Clone kernel source repositories
         run: |
@@ -45,7 +38,7 @@ jobs:
       - name: Compile kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: ${{github.workspace}}/gcc-toolchain/bin/aarch64-linux-android-
+          CROSS_COMPILE: aarch64-linux-gnu-
         run: |
           cd kernel
           make olddefconfig
