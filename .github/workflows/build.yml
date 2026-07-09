@@ -10,18 +10,14 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      # 预先安装rsync
-      - name: Install rsync
-        run: sudo apt‑get update && sudo apt‑get install -y rsync
-
       - name: Clone kernel source repositories
         run: |
           git clone https://github.com/fgnb666ace2vuser/android_kernel_common_oneplus_sm8845 kernel
           git clone https://github.com/fgnb666ace2vuser/android_kernel_modules_and_devicetree_oneplus_sm8845 temp1
           git clone https://github.com/fgnb666ace2vuser/android_kernel_oneplus_sm8845 temp2
 
-          rsync -av --ignore-existing temp1/ kernel/
-          rsync -av --ignore-existing temp2/ kernel/
+          cp -nR temp1/* kernel/
+          cp -nR temp2/* kernel/
 
           rm -rf temp1 temp2
 
