@@ -13,17 +13,17 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      - name: Cache NDK‑r16b
+      - name: Cache GCC‑7.5
         uses: actions/cache@v3
         with:
-          path: android-ndk-r16b
-          key: ndk-r16b
+          path: gcc-arm64
+          key: gcc75‑aarch64‑android
 
-      - name: Download Android NDK‑r16b (GCC‑4.9)
+      - name: Download GCC‑7.5 prebuilt
         run: |
-          if [ ! -d "android-ndk-r16b" ]; then
-            wget https://dl.google.com/android/repository/android-ndk-r16b-linux-x86_64.zip
-            unzip -q android-ndk-r16b-linux-x86_64.zip
+          if [ ! -d "gcc-arm64" ]; then
+            wget https://github.com/arter97/arm64-gcc/releases/download/7.5/aarch64-linux-android-7.5-linux-x86_64.tar.xz
+            tar -xf aarch64-linux-android-7.5-linux-x86_64.tar.xz -C gcc-arm64 --strip-components=1
           fi
 
       - name: Clone kernel source repositories
@@ -45,10 +45,9 @@ jobs:
       - name: Compile kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
+          CROSS_COMPILE: ${{github.workspace}}/gcc-arm64/bin/aarch64-linux-android-
         run: |
           cd kernel
-          sed -i '/minimum GCC version/,/endif/d' scripts/Kconfig.include
           make olddefconfig
           make -j$(nproc)
           make modules
