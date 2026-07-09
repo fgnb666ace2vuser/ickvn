@@ -1,0 +1,56 @@
+name: Build OnePlus SM8845 Kernel
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 拉取当前仓库的.config配置文件和CPU文件夹
+      - name: Checkout current repo files
+        uses: actions/checkout@v4
+
+      # 克隆三份内核源码仓库并合并
+      - name: Clone kernel source repositories
+        run: |
+          git clone https://github.com/fgnb666ace2vuser/android_kernel_common_oneplus_sm8845 kernel
+          git clone https://github.com/fgnb666ace2vuser/android_kernel_modules_and_devicetree_oneplus_sm8845 temp1
+          git clone https://github.com/fgnb666ace2vuser/android_kernel_oneplus_sm8845 temp2
+          cp -r temp1/* kernel/
+          cp -r temp2/* kernel/
+          rm -rf temp1 temp2
+
+      # 把.config以及CPU文件夹复制进内核源码目录
+      - name: Copy custom config and CPU module folder
+        run: |
+          cp .config kernel/
+          cp -r CPU kernel/
+
+      # 下载GCC‑4.9交叉编译器
+      - name: Download GCC‑4.9 Toolchain
+        run: |
+          wget https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9/archive/refs/heads/master.zip
+          unzip -q master.zip
+          mv android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9 gcc-arm64
+
+      # 编译内核镜像与ko模块，直接使用你已经配置好的.config
+      - name: Compile kernel
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: ${{github.workspace}}/gcc-arm64/bin/aarch64-linux-android-
+        run: |
+          cd kernel
+          make -j$(nproc)
+          make modules
+          cp arch/arm64/boot/Image ../Kernel-Image
+          find . -name "*.ko" -exec cp {} ../spoof-cpu.ko \;
+
+      # 上传编译成品
+      - name: Upload compiled artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel‑Build‑Output
+          path: |
+            Kernel-Image
+            spoof-cpu.ko
