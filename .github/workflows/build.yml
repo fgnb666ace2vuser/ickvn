@@ -13,10 +13,18 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
+      - name: Cache NDK‑r16b
+        uses: actions/cache@v3
+        with:
+          path: android-ndk-r16b
+          key: ndk-r16b
+
       - name: Download Android NDK‑r16b (GCC‑4.9)
         run: |
-          wget https://dl.google.com/android/repository/android-ndk-r16b-linux-x86_64.zip
-          unzip -q android-ndk-r16b-linux-x86_64.zip
+          if [ ! -d "android-ndk-r16b" ]; then
+            wget https://dl.google.com/android/repository/android-ndk-r16b-linux-x86_64.zip
+            unzip -q android-ndk-r16b-linux-x86_64.zip
+          fi
 
       - name: Clone kernel source repositories
         run: |
@@ -38,9 +46,9 @@ jobs:
         env:
           ARCH: arm64
           CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
-          KCONFIG_OVERRIDE_GCC_VERSION_CHECK: 1
         run: |
           cd kernel
+          sed -i 's/.*GCC version.*/# &/' scripts/Kconfig.include
           make olddefconfig
           make -j$(nproc)
           make modules
