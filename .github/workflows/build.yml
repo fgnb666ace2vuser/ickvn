@@ -10,12 +10,10 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      # 自动安装GCC‑4.9‑AArch64，由插件处理下载配置
-      - name: Install GCC 4.9
-        uses: actions‑setup‑gcc@v5
-        with:
-          gcc-version: '4.9'
-          target: aarch64-linux-android
+      - name: Download Android NDK‑r16b (GCC‑4.9)
+        run: |
+          wget https://dl.google.com/android/repository/android-ndk-r16b-linux-x86_64.zip
+          unzip -q android-ndk-r16b-linux-x86_64.zip
 
       - name: Clone kernel source repositories
         run: |
@@ -36,7 +34,7 @@ jobs:
       - name: Compile kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: aarch64-linux-android-
+          CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
         run: |
           cd kernel
           make -j$(nproc)
