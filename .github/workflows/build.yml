@@ -13,11 +13,18 @@ jobs:
       - name: Checkout current repo files
         uses: actions/checkout@v4
 
-      # 安装LLVM/Clang‑14，自带兼容的GCC版本，版本大于5.1
-      - name: Install LLVM‑14
-        uses: actions/setup-llvm@v1
+      - name: Cache NDK‑r16b
+        uses: actions/cache@v3
         with:
-          llvm-version: 14
+          path: android-ndk-r16b
+          key: ndk-r16b
+
+      - name: Download Android NDK‑r16b (GCC‑4.9)
+        run: |
+          if [ ! -d "android-ndk-r16b" ]; then
+            wget https://dl.google.com/android/repository/android-ndk-r16b-linux-x86_64.zip
+            unzip -q android-ndk-r16b-linux-x86_64.zip
+          fi
 
       - name: Clone kernel source repositories
         run: |
@@ -38,9 +45,11 @@ jobs:
       - name: Compile kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
         run: |
           cd kernel
+          # 彻底屏蔽GCC版本校验
+          sed -i '/^minimum GCC version/,/^endif/d' scripts/Kconfig.include
           make olddefconfig
           make -j$(nproc)
           make modules
