@@ -28,9 +28,9 @@ jobs:
 
       - name: Download GCC‑4.9 Toolchain
         run: |
-          wget https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9/archive/refs/heads/master.zip
-          unzip -q master.zip
-          mv android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9 gcc-arm64
+          wget https://gitlab.com/LineageOS/mirror/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9/-/archive/master/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9-master.zip -O gcc49.zip
+          unzip -q gcc49.zip
+          mv android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9-master gcc-arm64
 
       - name: Compile kernel
         env:
