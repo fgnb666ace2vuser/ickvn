@@ -17,13 +17,13 @@ jobs:
         uses: actions/cache@v3
         with:
           path: gcc-arm64
-          key: gcc11‑arm64‑kernelorg
+          key: gcc11‑arm64‑arter97
 
-      - name: Download GCC‑11 from kernel.org
+      - name: Download Arter97 GCC‑11
         run: |
           if [ ! -d "gcc-arm64" ]; then
-            wget https://cdn.kernel.org/pub/tools/crosstool/files/bin/x86_64/aarch64-linux-gnu/gcc-11.4.0/x86_64-aarch64-linux-gnu-gcc-11.4.0.tar.xz
-            tar -xf x86_64-aarch64-linux-gnu-gcc-11.4.0.tar.xz -C gcc-arm64 --strip-components=1
+            wget https://github.com/arter97/arm64-gcc/releases/download/11.3/aarch64-linux-gnu-gcc-11.3-linux-x86_64.tar.xz
+            tar -xf aarch64-linux-gnu-gcc-11.3-linux-x86_64.tar.xz -C gcc-arm64 --strip-components=1
           fi
 
       - name: Clone kernel source repositories
