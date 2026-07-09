@@ -48,8 +48,8 @@ jobs:
           CROSS_COMPILE: ${{github.workspace}}/android-ndk-r16b/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-
         run: |
           cd kernel
-          sed -i '/gcc-version-check/,/^endif/d' Makefile
-          make olddefconfig
+          sed -i '/if [ "\${GCC_VERSION}" -lt 510 ];/,/fi/d' scripts/Kconfig.include
+          IGNORE_GCC_VERSION_CHECK=1 make olddefconfig
           make -j$(nproc)
           make modules
           cp arch/arm64/boot/Image ../Kernel-Image
