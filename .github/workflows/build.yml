@@ -26,11 +26,14 @@ jobs:
           cp .config kernel/
           cp -r CPU kernel/
 
-      - name: Download GCC‑4.9 Toolchain
+      # 直接安装安卓版GCC‑4.9交叉编译器
+      - name: Install GCC‑4.9 from apt
         run: |
-          wget https://gitlab.com/LineageOS/mirror/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9/-/archive/master/android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9-master.zip -O gcc49.zip
-          unzip -q gcc49.zip
-          mv android_prebuilts_gcc_linux-x86_aarch64-linux-android-4.9-master gcc-arm64
+          sudo apt‑get update
+          sudo apt‑get install -y gcc‑4.9‑aarch64‑linux‑gnu g++‑4.9‑aarch64‑linux‑gnu
+          ln -s /usr/bin/aarch64‑linux‑gnu‑gcc‑4.9 ${{github.workspace}}/gcc-arm64/bin/aarch64-linux-android-gcc
+          ln -s /usr/bin/aarch64‑linux‑gnu‑g++‑4.9 ${{github.workspace}}/gcc-arm64/bin/aarch64-linux-android-g++
+          mkdir -p gcc-arm64/bin
 
       - name: Compile kernel
         env:
